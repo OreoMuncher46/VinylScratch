@@ -160,24 +160,28 @@ class AudioEngine {
 
     const directionChanged = this.forward !== fwd;
     const noSource = !this.sourceNode;
-    const bigDelta = Math.abs(this.rate - abs) > 0.15;
 
-    if (directionChanged || noSource || bigDelta) {
+    if (directionChanged || noSource) {
       this.playheadSec = this.playhead;
       this.forward = fwd;
       this.rate = abs;
       this.snapshotCtxTime();
       this.createSource(this.playheadSec, this.rate, this.forward);
     } else if (this.sourceNode) {
-      this.sourceNode.playbackRate.setTargetAtTime(abs, this.ctx.currentTime, 0.02);
+      this.sourceNode.playbackRate.setTargetAtTime(abs, this.ctx.currentTime, 0.05);
       this.rate = abs;
     }
   }
 
-  public endScratch(): void {
+  public endScratch(forceTime?: number): void {
     if (!this._isScratching) return;
     this._isScratching = false;
-    this.playheadSec = this.playhead;
+    
+    if (forceTime !== undefined && !isNaN(forceTime)) {
+      this.playheadSec = forceTime;
+    } else {
+      this.playheadSec = this.playhead;
+    }
 
     if (this._isPlaying) {
       this.forward = true;

@@ -31,13 +31,17 @@ export const Turntable: React.FC<TurntableProps> = ({ track, isPlaying, onTimeUp
     let prev = performance.now();
 
     const tick = (now: number) => {
-      const dt = Math.min((now - prev) / 1000, 0.05); // cap at 50ms to prevent spiral on tab-unfocus
+      const dt = Math.min((now - prev) / 1000, 0.05); // cap at 50ms
       prev = now;
 
-      if (!isScratchingRef.current && isPlaying) {
-        angleRef.current += DEG_PER_SEC * dt;
+      if (!isScratchingRef.current) {
+        // Force the visual angle to exactly match the audio playhead at all times
+        angleRef.current = (audioEngine.playhead / (1.8)) * 360;
         setVisualAngle(angleRef.current);
-        onTimeUpdate(audioEngine.playhead);
+        
+        if (isPlaying) {
+          onTimeUpdate(audioEngine.playhead);
+        }
       }
 
       rafRef.current = requestAnimationFrame(tick);
@@ -91,17 +95,17 @@ export const Turntable: React.FC<TurntableProps> = ({ track, isPlaying, onTimeUp
     if (dAngle > Math.PI) dAngle -= 2 * Math.PI;
     if (dAngle < -Math.PI) dAngle += 2 * Math.PI;
 
-    // Map angular displacement to audio time
+    // Instead of repeatedly seeking the audio engine (which causes pops),
+    // we compute instantaneous rotational velocity and update the playback rate!
     const timeDelta = dAngle * SEC_PER_RADIAN;
-    audioEngine.seek(audioEngine.playhead + timeDelta);
-
-    // Compute speed ratio with exponential smoothing
     const raw = timeDelta / dt;
     const alpha = 0.3;
     velocityRef.current = alpha * raw + (1 - alpha) * velocityRef.current;
+    
+    // Send smooth speed to the engine for clean pitch-shifting audio
     audioEngine.scratchSpeed(velocityRef.current);
 
-    // Update visual rotation
+    // Accumulate exact visual angle
     angleRef.current += dAngle * (180 / Math.PI);
     setVisualAngle(angleRef.current);
     setScratchDisplay({ active: true, speed: velocityRef.current });
@@ -143,7 +147,16 @@ export const Turntable: React.FC<TurntableProps> = ({ track, isPlaying, onTimeUp
       if (Math.abs(speed - targetSpeed) < 0.02) {
         isScratchingRef.current = false;
         setScratchDisplay({ active: false, speed: 0 });
-        audioEngine.endScratch();
+        
+        // Determine the absolute exact time the audio should snap to 
+        // based on the total visual rotation accrued during the scratch.
+        let exactTime = (angleRef.current / 360) * 1.8;
+        
+        // Ensure exactTime is within bounds of duration (and handle negative accumulation)
+        const dur = audioEngine.duration || 1;
+        exactTime = ((exactTime % dur) + dur) % dur;
+        
+        audioEngine.endScratch(exactTime);
       } else {
         requestAnimationFrame(spring);
       }
